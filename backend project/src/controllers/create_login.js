@@ -24,7 +24,21 @@ const createUser = async (req, res) => {
                     console.log("Error while inserting", err);
                     return res.status(400).json({ message: 'Error while creating user.' });
                 }
-                return res.status(201).json({ message: "New user successfully created" });
+
+                const userId = results.insertId; // ดึง primary key ของผู้ใช้ที่เพิ่งสร้างขึ้นมา
+
+                // เพิ่ม role ไปยังตาราง USER_ROLE
+                connection.query(
+                    "INSERT INTO USER_ROLE (Role_id, Role_name) VALUES (?, ?)",
+                    [userId, 'user'],  // Role_id เป็น userId และ Role_name เป็น 'user'
+                    (err, results, fields) => {
+                        if (err) {
+                            console.log("Error while inserting into USER_ROLE", err);
+                            return res.status(400).json({ message: 'Error while assigning role.' });
+                        }
+                        return res.status(201).json({ message: "New user successfully created and role assigned" });
+                    }
+                );
             }
         );
     } catch (error) {
