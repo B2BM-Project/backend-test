@@ -1,6 +1,6 @@
 const bcrypt = require('bcrypt');
 const connection = require('../config/database');
-
+const userQueries = require('../config/userQueries');
 
 // ระบบ signup //
 const createUser = async (req, res) => {
@@ -12,43 +12,40 @@ const createUser = async (req, res) => {
     }
 
     try {
-        // แฮชรหัสผ่าน
-        const hashedPassword = await bcrypt.hash(password, 10);
-
-        // เพิ่มผู้ใช้ลงในฐานข้อมูล
-        connection.query(
-            "INSERT INTO users (username, password, email, display_name, profile_img, role, total_score, certificate_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [username, hashedPassword, email, display_name || null, profile_img || null, role || null, total_score || null, certificate_name || null],
-            (err, results, fields) => {
-                if (err) {
-                    console.log("Error while inserting", err);
-                    return res.status(400).json({ message: 'Error while creating user.' });
-                }
-
-                const userId = results.insertId; // ดึง primary key ของผู้ใช้ที่เพิ่งสร้างขึ้นมา
-
-                // เพิ่ม role ไปยังตาราง USER_ROLE
-                connection.query(
-                    "INSERT INTO USER_ROLE (Role_id, Role_name) VALUES (?, ?)",
-                    [userId, 'user'],  // Role_id เป็น userId และ Role_name เป็น 'user'
-                    (err, results, fields) => {
-                        if (err) {
-                            console.log("Error while inserting into USER_ROLE", err);
-                            return res.status(400).json({ message: 'Error while assigning role.' });
-                        }
-                        return res.status(201).json({ message: "New user successfully created and role assigned" });
-                    }
-                );
+        // ตรวจสอบว่าชื่อผู้ใช้หรืออีเมลมีอยู่ในฐานข้อมูลแล้วหรือไม่
+        connection.query(userQueries.getUserByUsernameOrEmail, [username, email], async (err, results) => {
+            if (err) {
+                console.error("Error querying the database", err);
+                return res.status(500).json({ message: 'Error processing request.' });
             }
-        );
+
+            if (results.length > 0) {
+                // หากมีผู้ใช้หรืออีเมลที่ซ้ำ
+                return res.status(400).json({ message: 'Username or email already exists.' });
+            }
+
+            // แฮชรหัสผ่าน
+            const hashedPassword = await bcrypt.hash(password, 10);
+
+            // เพิ่มผู้ใช้ลงในฐานข้อมูล
+            connection.query(
+                userQueries.insertUser,
+                [username, hashedPassword, email, display_name || null, profile_img || null, role || 3, total_score || null, certificate_name || null],
+                (err, results) => {
+                    if (err) {
+                        console.log("Error while inserting", err);
+                        return res.status(400).json({ message: 'Error while creating user.' });
+                    }
+
+                    return res.status(201).json({ message: 'User created successfully.' });
+                }
+            );
+        });
     } catch (error) {
         console.error("Error hashing password", error);
         return res.status(500).json({ message: 'Error processing request.' });
     }
 };
-
-
-
 
 // ระบบ login //
 const loginUser = async (req, res) => {
@@ -61,43 +58,37 @@ const loginUser = async (req, res) => {
 
     try {
         // ค้นหาผู้ใช้ในฐานข้อมูล
-        connection.query(
-            "SELECT * FROM users WHERE username = ?",
-            [username],
-            async (err, results, fields) => {
-                if (err) {
-                    console.error("Error querying the database", err);
-                    return res.status(500).json({ message: 'Error processing request.' });
-                }
-
-                if (results.length === 0) {
-                    // ถ้าไม่พบผู้ใช้
-                    return res.status(401).json({ message: 'Invalid username or password.' });
-                }
-
-                const user = results[0];
-
-                // เปรียบเทียบรหัสผ่านที่ถูกแฮช
-                const passwordMatch = await bcrypt.compare(password, user.password);
-
-                if (!passwordMatch) {
-                    // ถ้ารหัสผ่านไม่ตรง
-                    return res.status(401).json({ message: 'Invalid username or password.' });
-                }
-
-                // หากรหัสผ่านถูกต้อง
-                return res.status(200).json({ message: 'Login successful', user });
+        connection.query(userQueries.getUserByUsername, [username], async (err, results) => {
+            if (err) {
+                console.error("Error querying the database", err);
+                return res.status(500).json({ message: 'Error processing request.' });
             }
-        );
+
+            if (results.length === 0) {
+                // ถ้าไม่พบผู้ใช้
+                return res.status(401).json({ message: 'Invalid username or password.' });
+            }
+
+            const user = results[0];
+
+            // เปรียบเทียบรหัสผ่านที่ถูกแฮช
+            const passwordMatch = await bcrypt.compare(password, user.password);
+
+            if (!passwordMatch) {
+                // ถ้ารหัสผ่านไม่ตรง
+                return res.status(401).json({ message: 'Invalid username or password.' });
+            }
+
+            // หากรหัสผ่านถูกต้อง
+            return res.status(200).json({ message: 'Login successful', user });
+        });
     } catch (error) {
         console.error("Error comparing password", error);
         return res.status(500).json({ message: 'Error processing request.' });
     }
 };
 
-
 module.exports = {
     createUser,
     loginUser
-   
 };
